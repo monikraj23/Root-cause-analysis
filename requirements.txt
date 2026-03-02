@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+requests
+groq
+streamlit-mic-recorder
+streamlit-autorefresh
