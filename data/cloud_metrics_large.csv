@@ -13,3 +13,4 @@ timestamp,cpu_usage,memory_usage,disk_io,network_latency,error_rate,request_rate
 2025-01-01 00:05:30,92,95,450,210,0.60,990
 2025-01-01 00:06:00,20,35,80,15,0.01,50
 2025-01-01 00:06:30,22,38,85,18,0.02,45
+

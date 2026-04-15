@@ -1,56 +1,83 @@
 import os
 import json
-import streamlit as st
 from groq import Groq
 from dotenv import load_dotenv
 
-# =========================================================
-# 🔑 SECURE API CONFIGURATION
-# =========================================================
-# Load environment variables from .env file
 load_dotenv()
 
-# Get the API key securely
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-if not GROQ_API_KEY:
-    st.error("GROQ_API_KEY not found! Please check your .env file or Streamlit secrets.")
-    st.stop()
-
 client = Groq(api_key=GROQ_API_KEY)
 
-@st.cache_data(show_spinner=False, ttl=600)
+
 def generate_ai_analysis(metrics_context):
     """
-    Forces Groq to provide a strictly formatted JSON RCA report.
+    Calls Groq with actual metric values to get a dynamic RCA report.
+    No caching — every row gets a fresh, unique analysis.
     """
-    # System Instruction for the AI
+    # Extract key values for dynamic prompt context
+    if isinstance(metrics_context, dict):
+        cpu = metrics_context.get("cpu_usage", 0)
+        memory = metrics_context.get("memory_usage", 0)
+        latency = metrics_context.get("network_latency", 0)
+        error_rate = metrics_context.get("error_rate", 0)
+        disk_io = metrics_context.get("disk_io", 0)
+        request_rate = metrics_context.get("request_rate", 0)
+    else:
+        cpu = memory = latency = error_rate = disk_io = request_rate = 0
+
     prompt = f"""
-    You are a Senior Cloud SRE and Predictive Analyst. Analyze these metrics: {metrics_context}
-    
-    STRICT OUTPUT RULES:
-    1. "remediation_script": Provide a REAL single-line Bash command. NEVER return N/A or None.
-    2. "predicted_ttf": If Error Rate > 0.1, return "IMMEDIATE". If stress is high, predict time (e.g., "12m").
-    3. "severity": Choose: "Critical", "High", or "Predictive".
-    
-    Return ONLY a JSON object with these exact keys:
-    "primary_cause", "hypotheses", "actions", "remediation_script", "severity", "predicted_ttf", "confidence"
-    """
+You are a Senior Cloud SRE and Predictive Analyst. Analyze these EXACT cloud metrics:
+
+- CPU Usage: {cpu}%
+- Memory Usage: {memory}%
+- Network Latency: {latency}ms
+- Error Rate: {error_rate}
+- Disk IO: {disk_io}
+- Request Rate: {request_rate}
+
+Based on the ACTUAL values above, generate a dynamic RCA report. Your response MUST vary based on the real numbers.
+
+STRICT RULES:
+1. "primary_cause": Name the single most anomalous metric and why it is problematic.
+2. "hypotheses": List 2 likely causes as a JSON array of strings based on the actual metrics.
+3. "actions": List 2-3 specific remediation steps as a JSON array of strings.
+4. "remediation_script": A real, single-line bash command specific to the root cause. NEVER return N/A.
+5. "severity":
+   - "Critical" if error_rate > 0.5 OR cpu > 90
+   - "High" if cpu > 75 OR latency > 200 OR error_rate > 0.05
+   - "Predictive" otherwise
+6. "predicted_ttf":
+   - "IMMEDIATE" if error_rate > 0.5
+   - "5m" if cpu > 90
+   - "15m" if cpu > 80 OR latency > 300
+   - "30m" if cpu > 70 OR latency > 150
+   - "60m" otherwise
+7. "confidence": A number 0-100 calculated from metric severity:
+   - Start at 50
+   - Add 20 if error_rate > 0.3
+   - Add 10 if error_rate > 0.05
+   - Add 10 if cpu > 85
+   - Add 5 if cpu > 70
+   - Add 5 if latency > 200
+   - Add 5 if memory > 85
+   - Return the final sum capped at 99
+
+Return ONLY a valid JSON object with exactly these keys:
+"primary_cause", "hypotheses", "actions", "remediation_script", "severity", "predicted_ttf", "confidence"
+"""
 
     try:
-        # Utilizing Llama 3 via Groq LPU for low-latency reasoning
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}, # Essential for valid JSON
-            temperature=0.2
+            response_format={"type": "json_object"},
+            temperature=0.4
         )
         return json.loads(completion.choices[0].message.content)
     except Exception as e:
-        # Fail-safe mechanism to ensure the UI doesn't crash
         return {
             "primary_cause": "System Analysis Failed",
-            "hypotheses": f"Agent Error: {str(e)}",
+            "hypotheses": [f"Agent Error: {str(e)}", "Check API connectivity"],
             "actions": ["Check API Connectivity", "Restart Monitoring", "Manual Review"],
             "remediation_script": "kubectl get events --sort-by='.lastTimestamp'",
             "severity": "High",
@@ -58,6 +85,7 @@ def generate_ai_analysis(metrics_context):
             "confidence": 0
         }
 
-def get_llm_reasoning(prompt, mode="fast"):
-    """Helper function for the orchestrator."""
-    return generate_ai_analysis(prompt)
+
+def get_llm_reasoning(metrics, mode="fast"):
+    """Helper function called by orchestrator and dashboard."""
+    return generate_ai_analysis(metrics)

@@ -17,15 +17,14 @@ class CloudAnomalyDetector:
 
     def detect(self, row):
         """
-        Detect anomaly with a hybrid of ML and Hard Thresholds for the demo.
+        Detect anomaly with a hybrid of ML and Hard Thresholds.
         """
-        # Ensure 'network_latency' is captured correctly
         latency = row.get("network_latency") or row.get("latency", 0)
         error_rate = row.get("error_rate", 0)
+        cpu = row.get("cpu_usage", 0)
 
-        # 1. HARD THRESHOLD GATE (Immediate trigger for Demo)
-        # This ensures the RCA triggers even before the 20-row baseline is met.
-        if error_rate > 0.05 or latency > 0.5 or latency > 25:
+        # 1. HARD THRESHOLD GATE — fixed thresholds (latency in ms, not decimal)
+        if error_rate > 0.05 or latency > 150 or cpu > 85:
             return True, row
 
         # 2. ML PREPARATION
@@ -41,7 +40,7 @@ class CloudAnomalyDetector:
             self.history.pop(0)
 
         # 3. MACHINE LEARNING GATE
-        if len(self.history) < 10: # Reduced from 20 for faster demo startup
+        if len(self.history) < 10:
             return False, None
 
         history_df = pd.DataFrame(self.history)
@@ -59,4 +58,4 @@ class CloudAnomalyDetector:
         if pred == -1:
             return True, df_row.iloc[0].to_dict()
 
-        return False, None
+        return False, Nonee
